@@ -13,6 +13,6 @@ python attack.py \
     --bkd_size 3 \
     --bkd_num_pergraph 1 \
     --pn_rate 1 \
-    --bkd_gratio_train 0.1 \
+    --bkd_gratio_train 0.02 \
     --bkd_gratio_test 0.5 \
-    --train_epochs 20 > ../attack.log 2>&1 &
+    --train_epochs 20

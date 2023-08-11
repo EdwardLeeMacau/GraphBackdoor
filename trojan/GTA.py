@@ -123,16 +123,24 @@ def train_gtn(
         feature generator
 
     pset : List[int]
-        List of graph ids to be synthesized trigger.
+        List of graph ids to be synthesized trigger. Comes from training dataset.
 
     nset : List[int]
-        List of graph ids as benign graphs.
+        List of graph ids as benign graphs. Comes from training dataset.
 
     topomasks : Dict[int, Tensor]
         Dict of topology masks, key is graph id, value is mask tensor.
 
     featmasks : Dict[int, Tensor]
         Dict of feature masks, key is graph id, value is mask tensor.
+
+    Returns
+    -------
+    GraphTrojanNet
+        topology generator
+
+    GraphTrojanNet
+        feature generator
     """
     if torch.cuda.is_available():
         cuda = torch.device('cuda')
@@ -161,7 +169,7 @@ def train_gtn(
     criterion = nn.CrossEntropyLoss()
 
     toponet.train()
-    for _ in tqdm(range(args.gtn_epochs), desc="training topology generator"):
+    for _ in tqdm(range(args.gtn_epochs), desc="Training topology generator", ncols=0):
         optimizer_topo.zero_grad()
         # generate new adj_list by dr.data['adj_list']
         for gid in pset:
@@ -194,7 +202,7 @@ def train_gtn(
     criterion = nn.CrossEntropyLoss()
 
     featnet.train()
-    for epoch in tqdm(range(args.gtn_epochs), desc="training feature generator"):
+    for epoch in tqdm(range(args.gtn_epochs), desc="Training feature generator", ncols=0):
         optimizer_feat.zero_grad()
         # generate new features by dr.data['features']
         for gid in pset:
@@ -206,9 +214,7 @@ def train_gtn(
             bkd_dr.data['features'][gid] = torch.add(rst_bkdX[:nodenums[gid]], init_Xs[gid])   # only current position in cuda
             SendtoCPU(gid, [init_Xs, Xinputs, featmasks])
 
-        # generate DataLoader
-        loss = forwarding(
-            args, bkd_dr, model, allset,  criterion)
+        loss = forwarding(args, bkd_dr, model, allset,  criterion)
         loss.backward()
         optimizer_feat.step()
         torch.cuda.empty_cache()

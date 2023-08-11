@@ -24,6 +24,10 @@ def select_cdd_graphs(
     """ Given a data (train/test), (randomly or determinately) pick up some graph to
     put backdoor trigger, return ids.
 
+    Notes that this function selects candidate graphs based on their sizes, but not
+    the original labels. Either the graphs from target class or not have the same
+    probability to be selected.
+
     Arguments
     ---------
     args : argparse.Namespace

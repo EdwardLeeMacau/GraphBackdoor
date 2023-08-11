@@ -48,7 +48,7 @@ def run(args):
         model = GCN(in_dim, out_dim, hidden_dim=args.hidden_dim, dropout=args.dropout)
     elif args.model == 'gat':
         model = GAT(in_dim, out_dim, hidden_dim=args.hidden_dim, dropout=args.dropout, num_head=args.num_head)
-    elif args.model=='sage':
+    elif args.model == 'sage':
         model = GraphSAGE(in_dim, out_dim, hidden_dim=args.hidden_dim, dropout=args.dropout)
     else:
         raise NotImplementedError(args.model)
@@ -63,7 +63,7 @@ def run(args):
     predict_fn = lambda output: output.max(1, keepdim=True)[1].detach().cpu()
     optimizer = optim.Adam(train_params, lr=args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.999))
     scheduler = lr_scheduler.MultiStepLR(optimizer, args.lr_decay_steps, gamma=0.1)
-    
+
     model.to(cuda)
     for epoch in range(args.train_epochs):
         model.train()
@@ -112,16 +112,16 @@ def run(args):
 
             eval_acc = 100. * correct / n_samples
             print('Test set (epoch %d): Average loss: %.4f, Accuracy: %d/%d (%.2f%s) \tsec/iter: %.2f' % (
-                epoch + 1, test_loss / n_samples, correct, n_samples, 
+                epoch + 1, test_loss / n_samples, correct, n_samples,
                 eval_acc, '%', (time.time() - start) / len(loaders['test'])))
-    
+
     model.to(cpu)
-    
+
     if args.save_clean_model:
         save_path = args.clean_model_save_path
         os.makedirs(save_path, exist_ok=True)
         save_path = os.path.join(save_path, '%s-%s-%s.t7' % (args.model, args.dataset, str(args.train_ratio)))
-        
+
         torch.save({
                     'model': model.state_dict(),
                     'lr': args.lr,

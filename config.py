@@ -36,7 +36,7 @@ def add_atk_group(group):
     group.add_argument('--bkd_num_pergraph', type=int, default=1, help="number of backdoor triggers per graph")
     group.add_argument('--bkd_size', type=int, default=5, help="number of nodes for each trigger")
     group.add_argument('--target_class', type=int, default=None, help="the targeted node/graph label")
-     
+
     group.add_argument('--gtn_layernum', type=int, default=3, help="layer number of GraphTrojanNet")
     group.add_argument('--pn_rate', type=float, default=1, help="ratio between trigger-embedded graphs (positive) and benign ones (negative)")
     group.add_argument('--gtn_input_type', type=str, default='2hop', help="how to process org graphs before inputting to GTN")

@@ -5,19 +5,17 @@ sys.path.append(os.path.abspath('..'))
 
 import copy
 import numpy as np
-from typing import List, Tuple, Union
+from typing import List, Tuple
 from tqdm import tqdm
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-import torch.optim.lr_scheduler as lr_scheduler
 
 from utils.datareader import DataReader
 from utils.bkdcdd import select_cdd_graphs, select_cdd_nodes
-from utils.mask import gen_mask, recover_mask
+from utils.mask import gen_mask
 import main.benign as benign
 import trojan.GTA as gta
+from trojan.GTA import GraphTrojanNet, train_gtn
 from trojan.input import gen_input
 from trojan.prop import train_model, evaluate
 from config import parse_args
@@ -36,7 +34,6 @@ class GraphBackdoor:
         self.benign_dr = None
         self.benign_model = None
 
-    @pysnooper.snoop()
     def run(self):
         # train a benign GNN
         self.benign_dr, self.benign_model = benign.run(self.args)
@@ -53,8 +50,8 @@ class GraphBackdoor:
         featdim = np.array(self.benign_dr.data['features'][0]).shape[1]
 
         # init two generators for topology / feature
-        toponet = gta.GraphTrojanNet(nodemax, self.args.gtn_layernum)
-        featnet = gta.GraphTrojanNet(featdim, self.args.gtn_layernum)
+        toponet = GraphTrojanNet(nodemax, self.args.gtn_layernum)
+        featnet = GraphTrojanNet(featdim, self.args.gtn_layernum)
 
         # init test data, fill values in adjacency matrix and features as 0
         # NOTE: for data that can only add perturbation on features, only init the topology value
@@ -99,12 +96,14 @@ class GraphBackdoor:
             for bi_step in range(self.args.bilevel_steps):
                 print("Resampling step %d, bi-level optimization step %d" % (rs_step, bi_step))
 
-                toponet, featnet = gta.train_gtn(
+                # Update trigger generator
+                # ! Check its objective function.
+                toponet, featnet = train_gtn(
                     self.args, model, toponet, featnet,
                     pset, nset, topomask_train, featmask_train,
                     init_dr_train, bkd_dr_train, Ainput_train, Xinput_train)
 
-                # get new backdoor datareader for training based on well-trained generators
+                # Synthesize backdoor and inject into backdoor datareader
                 for gid in bkd_gids_train:
                     rst_bkdA = toponet(
                         Ainput_train[gid], topomask_train[gid], self.args.topo_thrd,
@@ -123,10 +122,11 @@ class GraphBackdoor:
                     bkd_dr_train.data['features'][gid] = torch.add(
                         rst_bkdX[:nodenums[gid]].detach().cpu(), init_dr_train.data['features'][gid])
 
-                # train GNN
+                # Train GNN with backdoor datareader
                 train_model(self.args, bkd_dr_train, model, list(set(pset)), list(set(nset)))
 
                 #----------------- Evaluation -----------------#
+                # Inject trigger into test datareader, to validate ASR.
                 for gid in bkd_gids_test:
                     rst_bkdA = toponet(
                         Ainput_test[gid], topomask_test[gid], self.args.topo_thrd,
@@ -148,19 +148,21 @@ class GraphBackdoor:
                         rst_bkdX[:nodenums[gid]], torch.as_tensor(copy.deepcopy(init_dr_test.data['features'][gid])))
 
                 # graph originally in target label
-                yt_gids = [gid for gid in bkd_gids_test
-                        if self.benign_dr.data['labels'][gid]==self.args.target_class]
-                # graph originally notin target label
+                yt_gids = [
+                    gid for gid in bkd_gids_test
+                        if self.benign_dr.data['labels'][gid] == self.args.target_class
+                ]
+                # graph originally not in target label
                 yx_gids = list(set(bkd_gids_test) - set(yt_gids))
-                clean_graphs_test = list(set(self.benign_dr.data['splits']['test'])-set(bkd_gids_test))
+                clean_graphs_test = list(set(self.benign_dr.data['splits']['test']) - set(bkd_gids_test))
 
-                # feed into GNN, test success rate
+                # feed into GNN, test ASR and clean accuracy
                 bkd_acc = evaluate(self.args, bkd_dr_test, model, bkd_gids_test)
-                flip_rate = evaluate(self.args, bkd_dr_test, model,yx_gids)
+                flip_rate = evaluate(self.args, bkd_dr_test, model, yx_gids)
                 clean_acc = evaluate(self.args, bkd_dr_test, model, clean_graphs_test)
 
                 # save gnn
-                if rs_step == 0 and (bi_step==self.args.bilevel_steps-1 or abs(bkd_acc-100) <1e-4):
+                if rs_step == 0 and (bi_step == self.args.bilevel_steps - 1 or abs(bkd_acc - 100) < 1e-4):
                     if self.args.save_bkd_model:
                         save_path = self.args.bkd_model_save_path
                         os.makedirs(save_path, exist_ok=True)
@@ -173,14 +175,13 @@ class GraphBackdoor:
                                     'flip_rate': flip_rate,
                                     'clean_acc': clean_acc,
                                 }, save_path)
-                        print("Trojaning model is saved at: ", save_path)
+                        print("Trojaned model is saved at: ", save_path)
 
-                if abs(bkd_acc-100) <1e-4:
-                    # bkd_dr_tosave = copy.deepcopy(bkd_dr_test)
+                if abs(bkd_acc - 100) < 1e-4:
                     print("Early Termination for 100% Attack Rate")
                     break
-        print('Done')
 
+        print('Done')
 
     def bkd_cdd(
             self, subset: str
