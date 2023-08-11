@@ -169,7 +169,7 @@ def train_gtn(
     criterion = nn.CrossEntropyLoss()
 
     toponet.train()
-    for _ in tqdm(range(args.gtn_epochs), desc="Training topology generator", ncols=0):
+    for _ in (pbar := tqdm(range(args.gtn_epochs), desc="Training topology generator", ncols=0)):
         optimizer_topo.zero_grad()
         # generate new adj_list by dr.data['adj_list']
         for gid in pset:
@@ -185,6 +185,8 @@ def train_gtn(
         loss.backward()
         optimizer_topo.step()
         torch.cuda.empty_cache()
+
+        pbar.set_postfix({'loss': loss.item()})
 
     toponet.eval()
     toponet.to(cpu)
@@ -202,7 +204,7 @@ def train_gtn(
     criterion = nn.CrossEntropyLoss()
 
     featnet.train()
-    for epoch in tqdm(range(args.gtn_epochs), desc="Training feature generator", ncols=0):
+    for _ in (pbar := tqdm(range(args.gtn_epochs), desc="Training feature generator", ncols=0)):
         optimizer_feat.zero_grad()
         # generate new features by dr.data['features']
         for gid in pset:
@@ -218,6 +220,8 @@ def train_gtn(
         loss.backward()
         optimizer_feat.step()
         torch.cuda.empty_cache()
+
+        pbar.set_postfix({'loss': loss.item()})
 
     featnet.eval()
     featnet.to(cpu)

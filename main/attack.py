@@ -5,13 +5,14 @@ sys.path.append(os.path.abspath('..'))
 
 import copy
 import numpy as np
-from typing import List, Tuple
+from torch import Tensor
+from typing import Dict, List, Tuple
 from tqdm import tqdm
 import torch
 import torch.nn as nn
 
 from utils.datareader import DataReader
-from utils.bkdcdd import select_cdd_graphs, select_cdd_nodes
+from utils.bkdcdd import select_cdd_graphs, select_cdd_nodes, AdjMatrix
 from utils.mask import gen_mask
 import main.benign as benign
 import trojan.GTA as gta
@@ -20,7 +21,62 @@ from trojan.input import gen_input
 from trojan.prop import train_model, evaluate
 from config import parse_args
 
+def edit_distance(
+        origin_list: List[AdjMatrix],
+        modified_list: List[AdjMatrix],
+        bkd_gids_test: List[int],
+        masks: Dict[int, Tensor]
+    ) -> Dict:
+    """ Calculate the edit distance between the backdoored instances and the original instances.
+
+    Arguments
+    ---------
+    origin_list : List[AdjMatrix]
+        List of adjacency matrices (2d-array).
+
+    modified_list : List[AdjMatrix]
+        List of adjacency matrices after embedded trigger (2d-array).
+
+    bkd_gids_test : List[int]
+        List of graph ids to be injected backdoor.
+
+    masks : Dict[int, Tensor]
+        Dict of topology masks, key is graph id, value is mask tensor.
+
+    Returns
+    -------
+    Dict
+        metrics.
+    """
+    # Helper variables
+    num_poisoned = len(bkd_gids_test)
+
+    # Calculate the edit distance
+    inserted, removed, density = 0., 0., 0.
+    for gid in bkd_gids_test:
+        # Query the adjacency matrix
+        origin, modified = torch.tensor(origin_list[gid]), torch.tensor(modified_list[gid])
+        v = origin.shape[0]
+
+        # Mask out the nodes not in the trigger
+        mask = masks[gid].to(torch.bool)[:v, :v]
+        n, num_edges = mask.sum(), modified[mask].nonzero().numel()
+
+        density += num_edges / n
+        removed += torch.logical_and(origin[mask] == 1, modified[mask] == 0).sum()
+        inserted += torch.logical_and(origin[mask] == 0, modified[mask] == 1).sum()
+
+    # Calculate the sparsity of adjacency matrix
+
+    return {
+        'rm': removed.item() / num_poisoned,
+        'add': inserted.item() / num_poisoned,
+        'density': density.item() / num_poisoned,
+    }
+
 class GraphBackdoor:
+    args: argparse.Namespace
+
     benign_dr: DataReader
     benign_model: nn.Module
 
@@ -146,6 +202,12 @@ class GraphBackdoor:
                     #     rst_bkdX, torch.as_tensor(copy.deepcopy(init_dr_test.data['features'][gid])))
                     bkd_dr_test.data['features'][gid] = torch.add(
                         rst_bkdX[:nodenums[gid]], torch.as_tensor(copy.deepcopy(init_dr_test.data['features'][gid])))
+
+                # ! Profiling what GTA has generated.
+                metric = edit_distance(
+                    self.benign_dr.data['adj_list'], bkd_dr_test.data['adj_list'],
+                    bkd_gids_test, topomask_test)
+                print(metric)
 
                 # graph originally in target label
                 yt_gids = [
