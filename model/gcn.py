@@ -6,7 +6,7 @@ import dgl
 import dgl.function as fn
 from utils.graph import numpy_to_graph
 
-gcn_msg = fn.copy_src(src='h', out='m')
+gcn_msg = fn.copy_u(u='h', out='m')
 gcn_reduce = fn.sum(msg='m', out='h')
 
 # Used for inductive case (graph classification) by default.

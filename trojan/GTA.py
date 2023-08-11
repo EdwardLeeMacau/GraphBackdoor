@@ -1,10 +1,13 @@
+import argparse
 import sys, os
+from typing import List, Dict
 from utils.datareader import DataReader
 sys.path.append(os.path.abspath('..'))
 
 import numpy as np
 from tqdm import tqdm
 import torch
+from torch import Tensor
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
@@ -41,7 +44,7 @@ class GradWhere(torch.autograd.Function):
         """
         input, = ctx.saved_tensors
         grad_input = grad_output.clone()
-        
+
         """
         Return results number should corresponding with .forward inputs (besides ctx),
         for each input, return a corresponding backward grad
@@ -49,7 +52,7 @@ class GradWhere(torch.autograd.Function):
         return grad_input, None, None
 
 
-    
+
 class GraphTrojanNet(nn.Module):
     def __init__(self, sq_dim, layernum=1, dropout=0.05):
         super(GraphTrojanNet, self).__init__()
@@ -63,12 +66,12 @@ class GraphTrojanNet(nn.Module):
             if dropout > 0:
                 layers.append(nn.Dropout(p=dropout))
         layers.append(nn.Linear(sq_dim, sq_dim))
-        
+
         self.layers = nn.Sequential(*layers)
 
-    def forward(self, input, mask, thrd, 
-                device=torch.device('cpu'), 
-                activation='relu', 
+    def forward(self, input, mask, thrd,
+                device=torch.device('cpu'),
+                activation='relu',
                 for_whom='topo',
                 binaryfeat=False):
 
@@ -92,51 +95,73 @@ class GraphTrojanNet(nn.Module):
         bkdmat = torch.mul(bkdmat, mask)
 
         return bkdmat
-    
 
-def train_gtn(args, model, toponet: GraphTrojanNet, featnet: GraphTrojanNet,
-               pset, nset, topomasks, featmasks, 
-               init_dr: DataReader, bkd_dr: DataReader, Ainputs, Xinputs):
+
+def train_gtn(
+        args: argparse.Namespace, model: nn.Module, toponet: GraphTrojanNet, featnet: GraphTrojanNet,
+        pset: List[int], nset: List[int], topomasks: Dict[int, Tensor], featmasks: Dict[int, Tensor],
+        init_dr: DataReader, bkd_dr: DataReader, Ainputs, Xinputs):
     """
     All matrix/array like inputs should already in torch.tensor format.
     All tensor parameters or models should initially stay in CPU when
     feeding into this function.
-    
+
     About inputs of this function:
     - pset/nset: gids in trainset
     - init_dr: init datareader, keep unmodified inside of each resampling
     - bkd_dr: store temp adaptive adj/features, get by  init_dr + GTN(inputs)
+
+    Arguments
+    ---------
+    args : argparse.Namespace
+        Arguments from command line.
+
+    toponet : GraphTrojanNet
+        topology generator
+
+    featnet : GraphTrojanNet
+        feature generator
+
+    pset : List[int]
+        List of graph ids to be synthesized trigger.
+
+    nset : List[int]
+        List of graph ids as benign graphs.
+
+    topomasks : Dict[int, Tensor]
+        Dict of topology masks, key is graph id, value is mask tensor.
+
+    featmasks : Dict[int, Tensor]
+        Dict of feature masks, key is graph id, value is mask tensor.
     """
     if torch.cuda.is_available():
         cuda = torch.device('cuda')
         cpu = torch.device('cpu')
-    
+
     init_As = init_dr.data['adj_list']
     init_Xs = init_dr.data['features']
     bkd_As = bkd_dr.data['adj_list']
     bkd_Xs = bkd_dr.data['features']
-    
+
     nodenums = [len(adj) for adj in init_As]
     glabels = torch.LongTensor(init_dr.data['labels']).to(cuda)
     glabels[pset] = args.target_class
     allset = np.concatenate((pset, nset))
-    
-    optimizer_topo = optim.Adam(toponet.parameters(),
-                       lr=args.gtn_lr,
-                       weight_decay=5e-4)
-    optimizer_feat = optim.Adam(featnet.parameters(),
-                       lr=args.gtn_lr,
-                       weight_decay=5e-4)
-    
-    
-    #----------- training topo generator -----------#
+
+    optimizer_topo = optim.Adam(
+        toponet.parameters(), lr=args.gtn_lr, weight_decay=5e-4)
+    optimizer_feat = optim.Adam(
+        featnet.parameters(), lr=args.gtn_lr, weight_decay=5e-4)
+
+
+    #----------- training topology generator -----------#
     toponet.to(cuda)
     model.to(cuda)
     topo_thrd = torch.tensor(args.topo_thrd).to(cuda)
     criterion = nn.CrossEntropyLoss()
-    
-    toponet.train()    
-    for _ in tqdm(range(args.gtn_epochs), desc="training topology generator"): 
+
+    toponet.train()
+    for _ in tqdm(range(args.gtn_epochs), desc="training topology generator"):
         optimizer_topo.zero_grad()
         # generate new adj_list by dr.data['adj_list']
         for gid in pset:
@@ -147,12 +172,12 @@ def train_gtn(args, model, toponet: GraphTrojanNet, featnet: GraphTrojanNet,
             # bkd_dr.data['adj_list'][gid] = torch.add(rst_bkdA, init_As[gid])
             bkd_dr.data['adj_list'][gid] = torch.add(rst_bkdA[:nodenums[gid], :nodenums[gid]], init_As[gid])   # only current position in cuda
             SendtoCPU(gid, [init_As, Ainputs, topomasks])
-            
+
         loss = forwarding(args, bkd_dr, model, allset, criterion)
         loss.backward()
         optimizer_topo.step()
         torch.cuda.empty_cache()
-        
+
     toponet.eval()
     toponet.to(cpu)
     model.to(cpu)
@@ -160,16 +185,16 @@ def train_gtn(args, model, toponet: GraphTrojanNet, featnet: GraphTrojanNet,
         SendtoCPU(gid, [bkd_dr.data['adj_list']])
     del topo_thrd
     torch.cuda.empty_cache()
-    
+
 
     #----------- training feat generator -----------#
     featnet.to(cuda)
     model.to(cuda)
     feat_thrd = torch.tensor(args.feat_thrd).to(cuda)
     criterion = nn.CrossEntropyLoss()
-    
-    featnet.train()    
-    for epoch in tqdm(range(args.gtn_epochs), desc="training feature generator"): 
+
+    featnet.train()
+    for epoch in tqdm(range(args.gtn_epochs), desc="training feature generator"):
         optimizer_feat.zero_grad()
         # generate new features by dr.data['features']
         for gid in pset:
@@ -180,14 +205,14 @@ def train_gtn(args, model, toponet: GraphTrojanNet, featnet: GraphTrojanNet,
             # bkd_dr.data['features'][gid] = torch.add(rst_bkdX, init_Xs[gid])
             bkd_dr.data['features'][gid] = torch.add(rst_bkdX[:nodenums[gid]], init_Xs[gid])   # only current position in cuda
             SendtoCPU(gid, [init_Xs, Xinputs, featmasks])
-            
+
         # generate DataLoader
         loss = forwarding(
             args, bkd_dr, model, allset,  criterion)
         loss.backward()
         optimizer_feat.step()
         torch.cuda.empty_cache()
-        
+
     featnet.eval()
     featnet.to(cpu)
     model.to(cpu)
@@ -195,30 +220,30 @@ def train_gtn(args, model, toponet: GraphTrojanNet, featnet: GraphTrojanNet,
         SendtoCPU(gid, [bkd_dr.data['features']])
     del feat_thrd
     torch.cuda.empty_cache()
-    
+
     return toponet, featnet
 
 #----------------------------------------------------------------
 def SendtoCUDA(gid, items):
     """
-    - items: a list of dict / full-graphs list, 
+    - items: a list of dict / full-graphs list,
              used as item[gid] in items
     - gid: int
     """
     cuda = torch.device('cuda')
     for item in items:
         item[gid] = torch.as_tensor(item[gid], dtype=torch.float32).to(cuda)
-        
-        
+
+
 def SendtoCPU(gid, items):
     """
     Used after SendtoCUDA, target object must be torch.tensor and already in cuda.
-    
-    - items: a list of dict / full-graphs list, 
+
+    - items: a list of dict / full-graphs list,
              used as item[gid] in items
     - gid: int
     """
-    
+
     cpu = torch.device('cpu')
     for item in items:
         item[gid] = item[gid].to(cpu)
