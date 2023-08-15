@@ -55,6 +55,9 @@ def add_atk_group(group):
     group.add_argument('--save_bkd_model', action='store_true')
     group.add_argument('--bkd_model_save_path', type=str, default='../save/model/bkd')
 
+    group.add_argument('--save_gtn', action='store_true')
+    group.add_argument('--gtn_save_path', type=str, default='../save/model/gtn')
+
 def parse_args():
     parser = argparse.ArgumentParser()
     data_group = parser.add_argument_group(title="Data-related configuration")

@@ -154,7 +154,6 @@ class DataReader():
 
         #--------- Generate onehot-feature ---------#
         features = GetFinalFeatures(args, data)
-        assert(len(features.shape) == 2)
 
         # final graph feature dim
         num_features = features[0].shape[1]
@@ -187,6 +186,8 @@ class DataReader():
         print('N edges avg/std/min/max: \t%.2f/%.2f/%d/%d' % stats(n_edges))
         print('Node degree avg/std/min/max: \t%.2f/%.2f/%d/%d' % stats(degrees))
         print('Node features dim: \t\t%d' % num_features)
+        print('Node features norm: \t\t%.2f/%.2f/%.2f/%.2f'
+              % stats(np.linalg.norm(np.concatenate(features), axis=1)))
         print('N classes: \t\t\t%d' % num_classes)
         print('Classes: \t\t\t%s' % str(classes))
 

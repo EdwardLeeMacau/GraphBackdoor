@@ -1,3 +1,5 @@
+import setGPU
+
 import argparse
 import sys, os
 import pysnooper
@@ -228,20 +230,41 @@ class GraphBackdoor:
                     if self.args.save_bkd_model:
                         save_path = self.args.bkd_model_save_path
                         os.makedirs(save_path, exist_ok=True)
-                        save_path = os.path.join(save_path, '%s-%s-%f.t7' % (
-                            self.args.model, self.args.dataset, self.args.train_ratio,
-                            self.args.bkd_gratio_trainset, self.args.bkd_num_pergraph, self.args.bkd_size))
+                        save_path = os.path.join(save_path, '%s-%s-%d.t7' % (
+                            self.args.model, self.args.dataset, self.args.bkd_size))
 
-                        torch.save({'model': model.state_dict(),
-                                    'asr': bkd_acc,
-                                    'flip_rate': flip_rate,
-                                    'clean_acc': clean_acc,
-                                }, save_path)
+                        torch.save({
+                            'toponet': toponet.state_dict(),
+                            'featnet': featnet.state_dict(),
+                            'model': model.state_dict(),
+                        }, save_path)
                         print("Trojaned model is saved at: ", save_path)
 
                 if abs(bkd_acc - 100) < 1e-4:
                     print("Early Termination for 100% Attack Rate")
                     break
+
+        # save graph trojan network
+        toponet.eval()
+        featnet.eval()
+        model.eval()
+
+        toponet.cpu()
+        featnet.cpu()
+        model.cpu()
+
+        if self.args.save_gtn:
+            save_path = self.args.gtn_save_path
+            os.makedirs(save_path, exist_ok=True)
+            save_path = os.path.join(save_path, '%s-%s-%d.t7' % (
+                self.args.model, self.args.dataset, self.args.bkd_size))
+
+            torch.save({
+                'toponet': toponet.state_dict(),
+                'featnet': featnet.state_dict(),
+                'model': model.state_dict(),
+            }, save_path)
+            print("Trojaned graph is saved at: ", save_path)
 
         print('Done')
 
